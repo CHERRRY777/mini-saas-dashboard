@@ -1,0 +1,18 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Dashboard</title>
+</head>
+<body>
+    <h1>Welcome, {{ user.name }}!</h1>
+
+    <h3>Your Account Information</h3>
+
+    <p>Name: {{ user.name }}</p>
+    <p>Email: {{ user.email }}</p>
+    <p>Account Type: {{ user.role }}</p>
+
+    <a href="/logout">Logout</a>
+</body>
+</html>

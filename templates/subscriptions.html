@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subscription Management | Mini SaaS</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #0b1220;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* SIDEBAR */
+
+        .sidebar {
+            width: 240px;
+            background: #111c30;
+            padding: 28px 18px;
+            flex-shrink: 0;
+        }
+
+        .logo {
+            font-size: 23px;
+            font-weight: bold;
+            color: #38bdf8;
+            margin-bottom: 40px;
+        }
+
+        .sidebar a {
+            display: block;
+            color: #94a3b8;
+            text-decoration: none;
+            padding: 13px 15px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            transition: 0.2s;
+        }
+
+        .sidebar a:hover,
+        .sidebar a.active {
+            background: #1e3a5f;
+            color: #38bdf8;
+        }
+
+        /* MAIN CONTENT */
+
+        .main {
+            flex: 1;
+            padding: 35px;
+            min-width: 0;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .topbar h1 {
+            font-size: 27px;
+            color: #f8fafc;
+        }
+
+        .welcome {
+            color: #94a3b8;
+            font-size: 14px;
+            margin-top: 7px;
+        }
+
+        .logout {
+            background: #dc2626;
+            color: white;
+            padding: 10px 17px;
+            border-radius: 7px;
+            text-decoration: none;
+        }
+
+        /* STAT CARDS */
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #111c30;
+            border: 1px solid #26364d;
+            padding: 22px;
+            border-radius: 12px;
+        }
+
+        .stat-card p {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        .stat-card h2 {
+            margin-top: 12px;
+            font-size: 28px;
+            color: #38bdf8;
+        }
+
+        /* SECTIONS */
+
+        .section {
+            background: #111c30;
+            border: 1px solid #26364d;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 28px;
+        }
+
+        .section h2 {
+            font-size: 20px;
+            margin-bottom: 20px;
+            color: #f8fafc;
+        }
+
+        /* ASSIGN FORM */
+
+        .assign-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: end;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 9px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 12px;
+            background: #0b1220;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 7px;
+            outline: none;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: #38bdf8;
+        }
+
+        select option {
+            background: #111c30;
+            color: white;
+        }
+
+        button {
+            border: none;
+            cursor: pointer;
+            border-radius: 7px;
+            padding: 11px 16px;
+            font-weight: bold;
+        }
+
+        .assign-btn {
+            background: #0284c7;
+            color: white;
+            height: 42px;
+        }
+
+        .assign-btn:hover {
+            background: #0369a1;
+        }
+
+        /* FLASH MESSAGES */
+
+        .flash {
+            background: #12334a;
+            border: 1px solid #0284c7;
+            color: #7dd3fc;
+            padding: 13px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        /* TABLE */
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            min-width: 850px;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 15px 12px;
+            border-bottom: 1px solid #26364d;
+            font-size: 13px;
+        }
+
+        th {
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        td {
+            color: #cbd5e1;
+        }
+
+        tbody tr:hover {
+            background: #17263d;
+        }
+
+        /* STATUS */
+
+        .status {
+            display: inline-block;
+            padding: 6px 11px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: capitalize;
+        }
+
+        .active-status {
+            background: #064e3b;
+            color: #6ee7b7;
+        }
+
+        .expired-status {
+            background: #422006;
+            color: #fcd34d;
+        }
+
+        .cancelled-status {
+            background: #450a0a;
+            color: #fca5a5;
+        }
+
+        .pending-status {
+            background: #312e81;
+            color: #c4b5fd;
+        }
+
+        /* ACTIONS */
+
+        .actions {
+            display: flex;
+            gap: 7px;
+        }
+
+        .cancel-btn {
+            background: #dc2626;
+            color: white;
+            font-size: 11px;
+        }
+
+        .renew-btn {
+            background: #059669;
+            color: white;
+            font-size: 11px;
+        }
+
+        .cancel-btn:hover {
+            background: #b91c1c;
+        }
+
+        .renew-btn:hover {
+            background: #047857;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 35px;
+            color: #94a3b8;
+        }
+
+        /* RESPONSIVE */
+
+        @media (max-width: 900px) {
+            .sidebar {
+                width: 190px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .assign-form {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .assign-btn {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .layout {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                padding: 15px;
+            }
+
+            .logo {
+                margin-bottom: 15px;
+            }
+
+            .main {
+                padding: 18px;
+            }
+
+            .topbar {
+                align-items: flex-start;
+            }
+
+            .topbar h1 {
+                font-size: 21px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .assign-form {
+                grid-template-columns: 1fr;
+            }
+
+            .assign-btn {
+                grid-column: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="layout">
+
+    <!-- SIDEBAR -->
+
+    <aside class="sidebar">
+
+        <div class="logo">Mini SaaS</div>
+
+        <a href="/admin">Overview</a>
+
+        <a href="/admin/users">Users</a>
+
+        <a href="/admin/subscriptions" class="active">
+            Subscriptions
+        </a>
+
+        <a href="#">Payments</a>
+
+        <a href="/admin/plans">Plans</a>
+
+        <a href="#">Settings</a>
+
+    </aside>
+
+
+    <!-- MAIN CONTENT -->
+
+    <main class="main">
+
+        <div class="topbar">
+
+            <div>
+                <h1>Subscription Management</h1>
+
+                <p class="welcome">
+                    Manage customer subscriptions and renewals.
+                </p>
+            </div>
+
+            <a href="/logout" class="logout">Logout</a>
+
+        </div>
+
+
+        <!-- FLASH MESSAGES -->
+
+        {% with messages = get_flashed_messages() %}
+
+            {% for message in messages %}
+
+                <div class="flash">
+                    {{ message }}
+                </div>
+
+            {% endfor %}
+
+        {% endwith %}
+
+
+        <!-- STATISTICS -->
+
+        {% set active_count = subscriptions | selectattr("status", "equalto", "active") | list | length %}
+        {% set expired_count = subscriptions | selectattr("status", "equalto", "expired") | list | length %}
+        {% set cancelled_count = subscriptions | selectattr("status", "equalto", "cancelled") | list | length %}
+
+        <div class="stats">
+
+            <div class="stat-card">
+                <p>Total Subscriptions</p>
+                <h2>{{ subscriptions | length }}</h2>
+            </div>
+
+            <div class="stat-card">
+                <p>Active Subscriptions</p>
+                <h2>{{ active_count }}</h2>
+            </div>
+
+            <div class="stat-card">
+                <p>Expired / Cancelled</p>
+                <h2>{{ expired_count + cancelled_count }}</h2>
+            </div>
+
+        </div>
+
+
+        <!-- ASSIGN SUBSCRIPTION -->
+
+        <section class="section">
+
+            <h2>Assign New Subscription</h2>
+
+            {% if users and plans %}
+
+                <form
+                    action="/admin/subscriptions/assign"
+                    method="POST"
+                    class="assign-form"
+                >
+
+                    <div class="form-group">
+
+                        <label>Select Customer</label>
+
+                        <select name="user_id" required>
+
+                            <option value="">
+                                Choose a customer
+                            </option>
+
+                            {% for customer in users %}
+
+                                <option value="{{ customer.id }}">
+                                    {{ customer.name }} ({{ customer.email }})
+                                </option>
+
+                            {% endfor %}
+
+                        </select>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>Select Subscription Plan</label>
+
+                        <select name="plan_id" required>
+
+                            <option value="">
+                                Choose a plan
+                            </option>
+
+                            {% for plan in plans %}
+
+                                <option value="{{ plan.id }}">
+                                    {{ plan.name }} - ₹{{ "%.2f"|format(plan.price) }}
+                                    ({{ plan.duration_days }} days)
+                                </option>
+
+                            {% endfor %}
+
+                        </select>
+
+                    </div>
+
+
+                    <button type="submit" class="assign-btn">
+                        Assign Subscription
+                    </button>
+
+                </form>
+
+            {% else %}
+
+                <p class="empty">
+                    {% if not users %}
+                        No customer accounts available. Register a customer first.
+                    {% else %}
+                        No subscription plans available. Create a plan first.
+                    {% endif %}
+                </p>
+
+            {% endif %}
+
+        </section>
+
+
+        <!-- SUBSCRIPTION TABLE -->
+
+        <section class="section">
+
+            <h2>All Subscriptions</h2>
+
+            <div class="table-wrapper">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+                            <th>ID</th>
+                            <th>Customer</th>
+                            <th>Email</th>
+                            <th>Plan</th>
+                            <th>Price</th>
+                            <th>Status</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Actions</th>
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody>
+
+                        {% for subscription in subscriptions %}
+
+                            <tr>
+
+                                <td>#{{ subscription.id }}</td>
+
+                                <td>{{ subscription.user_name }}</td>
+
+                                <td>{{ subscription.user_email }}</td>
+
+                                <td>{{ subscription.plan_name }}</td>
+
+                                <td>
+                                    ₹{{ "%.2f"|format(subscription.plan_price) }}
+                                </td>
+
+                                <td>
+
+                                    <span class="status {{ subscription.status }}-status">
+                                        {{ subscription.status }}
+                                    </span>
+
+                                </td>
+
+                                <td>
+                                    {{ subscription.start_date or "N/A" }}
+                                </td>
+
+                                <td>
+                                    {{ subscription.end_date or "N/A" }}
+                                </td>
+
+                                <td>
+
+                                    <div class="actions">
+
+                                        {% if subscription.status == "active" %}
+
+                                            <form
+                                                action="/admin/subscriptions/cancel/{{ subscription.id }}"
+                                                method="POST"
+                                                onsubmit="return confirm('Cancel this subscription?');"
+                                            >
+
+                                                <button
+                                                    type="submit"
+                                                    class="cancel-btn"
+                                                >
+                                                    Cancel
+                                                </button>
+
+                                            </form>
+
+                                        {% elif subscription.status in ["expired", "cancelled"] %}
+
+                                            <form
+                                                action="/admin/subscriptions/renew/{{ subscription.id }}"
+                                                method="POST"
+                                                onsubmit="return confirm('Renew this subscription?');"
+                                            >
+
+                                                <button
+                                                    type="submit"
+                                                    class="renew-btn"
+                                                >
+                                                    Renew
+                                                </button>
+
+                                            </form>
+
+                                        {% else %}
+
+                                            <span>-</span>
+
+                                        {% endif %}
+
+                                    </div>
+
+                                </td>
+
+                            </tr>
+
+                        {% else %}
+
+                            <tr>
+
+                                <td colspan="9" class="empty">
+                                    No subscriptions found.
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </section>
+
+    </main>
+
+</div>
+
+</body>
+</html>
