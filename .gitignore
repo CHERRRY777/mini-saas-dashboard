@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+.env
+saas_dashboard.db
+SaaS-Dashboard/
