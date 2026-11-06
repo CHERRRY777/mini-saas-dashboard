@@ -1,18 +1,306 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Dashboard</title>
+
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 30px;
+            font-family: Arial, sans-serif;
+            background: #f4f6f9;
+            color: #222;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        .header, .section {
+            background: white;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+        }
+
+        .logout {
+            background: #dc3545;
+            color: white;
+            padding: 10px 18px;
+            border-radius: 6px;
+            text-decoration: none;
+        }
+
+        .plans {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 18px;
+        }
+
+        .plan {
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .price {
+            font-size: 26px;
+            font-weight: bold;
+            color: #2563eb;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #999;
+            cursor: not-allowed;
+        }
+
+        .message {
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+    </style>
 </head>
+
 <body>
-    <h1>Welcome, {{ user.name }}!</h1>
 
-    <h3>Your Account Information</h3>
+<div class="container">
 
-    <p>Name: {{ user.name }}</p>
-    <p>Email: {{ user.email }}</p>
-    <p>Account Type: {{ user.role }}</p>
+    <div class="header">
+        <div>
+            <h1>Welcome, {{ user.name }}!</h1>
+            <p>Your Mini SaaS Dashboard</p>
+        </div>
 
-    <a href="/logout">Logout</a>
+        <a href="{{ url_for('logout') }}" class="logout">Logout</a>
+    </div>
+
+    <div class="section">
+        <h2>Your Account Information</h2>
+        <p><strong>Name:</strong> {{ user.name }}</p>
+        <p><strong>Email:</strong> {{ user.email }}</p>
+        <p><strong>Account Type:</strong> {{ user.role }}</p>
+    </div>
+
+    <div class="section">
+        <h2>Your Subscription</h2>
+
+        {% if subscription %}
+            <p><strong>Plan:</strong> {{ subscription.plan_name }}</p>
+            <p><strong>Status:</strong> {{ subscription.status }}</p>
+            <p><strong>Start Date:</strong> {{ subscription.start_date }}</p>
+            <p><strong>End Date:</strong> {{ subscription.end_date }}</p>
+        {% else %}
+            <p>You do not have an active subscription yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>Available Plans</h2>
+
+        {% if plans %}
+            <div class="plans">
+
+                {% for plan in plans %}
+                    <div class="plan">
+                        <h3>{{ plan.name }}</h3>
+
+                        <p class="price">
+                            ₹{{ "%.2f"|format(plan.price) }}
+                        </p>
+
+                        <p>{{ plan.description }}</p>
+
+                        <p>
+                            Duration: {{ plan.duration_days }} days
+                        </p>
+
+                        {% if plan.price > 0 %}
+                            <button
+                                type="button"
+                                onclick="buyPlan({{ plan.id }})"
+                                id="buy-{{ plan.id }}">
+                                Subscribe Now
+                            </button>
+                        {% else %}
+                            <p>Free Plan</p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+            </div>
+        {% else %}
+            <p>No plans are available currently.</p>
+        {% endif %}
+
+        <div id="payment-message" class="message"></div>
+    </div>
+
+</div>
+
+<script>
+    const razorpayKeyId = {{ razorpay_key_id | tojson }};
+
+    function showMessage(message, type) {
+        const element = document.getElementById("payment-message");
+        element.textContent = message;
+        element.className = "message " + type;
+    }
+
+    async function buyPlan(planId) {
+        const button = document.getElementById("buy-" + planId);
+
+        if (!razorpayKeyId) {
+            showMessage("Payment configuration is missing. Please contact support.", "error");
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Creating order...";
+
+        try {
+            const response = await fetch(
+                `/create-order/${planId}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+
+            const order = await response.json();
+
+            if (!response.ok) {
+                throw new Error(order.error || "Unable to create payment order.");
+            }
+
+            const options = {
+                key: order.key_id,
+                amount: order.amount,
+                currency: order.currency,
+                name: "Mini SaaS",
+                description: order.plan_name || "Subscription",
+                order_id: order.order_id,
+
+                handler: async function (paymentResponse) {
+                    showMessage("Verifying payment...", "");
+
+                    try {
+                        const verifyResponse = await fetch(
+                            "/verify-payment",
+                            {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json"
+                                },
+                                body: JSON.stringify({
+                                    razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                                    razorpay_order_id: paymentResponse.razorpay_order_id,
+                                    razorpay_signature: paymentResponse.razorpay_signature
+                                })
+                            }
+                        );
+
+                        const result = await verifyResponse.json();
+
+                        if (!verifyResponse.ok) {
+                            throw new Error(result.error || "Payment verification failed.");
+                        }
+
+                        showMessage(
+                            "Payment successful! Your subscription is activated.",
+                            "success"
+                        );
+
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+
+                    } catch (error) {
+                        showMessage(error.message, "error");
+                    }
+                },
+
+                modal: {
+                    ondismiss: function () {
+                        showMessage("Payment window closed.", "");
+                        button.disabled = false;
+                        button.textContent = "Subscribe Now";
+                    }
+                },
+
+                theme: {
+                    color: "#2563eb"
+                }
+            };
+
+            const razorpay = new Razorpay(options);
+
+            razorpay.on("payment.failed", function (response) {
+                showMessage(
+                    response.error.description || "Payment failed.",
+                    "error"
+                );
+                button.disabled = false;
+                button.textContent = "Subscribe Now";
+            });
+
+            razorpay.open();
+
+        } catch (error) {
+            showMessage(error.message, "error");
+            button.disabled = false;
+            button.textContent = "Subscribe Now";
+        }
+    }
+</script>
+
 </body>
 </html>
+

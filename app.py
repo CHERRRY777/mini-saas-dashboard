@@ -1,6 +1,6 @@
 
-
 import os
+import secrets
 from functools import wraps
 from datetime import datetime, timedelta
 
@@ -10,7 +10,8 @@ from flask import (
     request,
     redirect,
     url_for,
-    flash
+    flash,
+    jsonify
 )
 
 from flask_login import (
@@ -27,6 +28,8 @@ from werkzeug.security import (
     check_password_hash
 )
 
+import razorpay
+
 from database import get_connection, create_tables
 
 
@@ -36,19 +39,35 @@ from database import get_connection, create_tables
 
 app = Flask(__name__)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+secret_key = os.environ.get("SECRET_KEY")
 
-if not app.config["SECRET_KEY"]:
-    raise RuntimeError(
-        "SECRET_KEY environment variable is missing."
-    )
+if not secret_key and __name__ == "__main__":
+    secret_key = secrets.token_hex(32)
+    print("Using a temporary local SECRET_KEY.")
+
+if not secret_key:
+    raise RuntimeError("SECRET_KEY environment variable is missing.")
+
+app.config["SECRET_KEY"] = secret_key
 
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
 
-# Create database tables when the application starts.
 create_tables()
+
+# Razorpay credentials from environment variables
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET")
+
+
+def get_razorpay_client():
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        raise RuntimeError("Razorpay credentials are not configured.")
+
+    return razorpay.Client(
+        auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+    )
 
 
 # ==========================================
@@ -239,8 +258,7 @@ def dashboard():
                 plans.price AS plan_price,
                 plans.duration_days
             FROM subscriptions
-            LEFT JOIN plans
-                ON subscriptions.plan_id = plans.id
+            LEFT JOIN plans ON subscriptions.plan_id = plans.id
             WHERE subscriptions.user_id = ?
             ORDER BY subscriptions.id DESC
             LIMIT 1
@@ -248,14 +266,242 @@ def dashboard():
             (current_user.id,)
         ).fetchone()
 
+        plans = conn.execute(
+            "SELECT * FROM plans ORDER BY price ASC"
+        ).fetchall()
+
     finally:
         conn.close()
 
     return render_template(
         "dashboard.html",
         user=current_user,
-        subscription=subscription
+        subscription=subscription,
+        plans=plans,
+        razorpay_key_id=RAZORPAY_KEY_ID
     )
+
+
+# ==========================================
+# CREATE RAZORPAY ORDER
+# ==========================================
+
+@app.route("/create-order/<int:plan_id>", methods=["POST"])
+@login_required
+def create_order(plan_id):
+
+    if current_user.role == "admin":
+        return jsonify({
+            "error": "Admin accounts cannot purchase plans."
+        }), 403
+
+    if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
+        return jsonify({
+            "error": "Payment service is not configured."
+        }), 503
+
+    conn = get_connection()
+
+    try:
+        plan = conn.execute(
+            "SELECT * FROM plans WHERE id = ?",
+            (plan_id,)
+        ).fetchone()
+
+        if not plan:
+            return jsonify({
+                "error": "Selected plan was not found."
+            }), 404
+
+        amount_paise = int(round(float(plan["price"]) * 100))
+
+        if amount_paise <= 0:
+            return jsonify({
+                "error": "This plan does not require payment."
+            }), 400
+
+        client = get_razorpay_client()
+
+        order = client.order.create(data={
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": (
+                f"user{current_user.id}plan{plan_id}"
+                f"{int(datetime.now().timestamp())}"
+            )[:40],
+            "notes": {
+                "user_id": str(current_user.id),
+                "plan_id": str(plan_id)
+            }
+        })
+
+        conn.execute(
+            """
+            INSERT INTO payments
+                (user_id, amount, status, razorpay_order_id, plan_id)
+            VALUES (?, ?, 'pending', ?, ?)
+            """,
+            (
+                current_user.id,
+                float(plan["price"]),
+                order["id"],
+                plan_id
+            )
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "key_id": RAZORPAY_KEY_ID,
+            "order_id": order["id"],
+            "amount": amount_paise,
+            "currency": "INR",
+            "plan_name": plan["name"],
+            "user_name": current_user.name,
+            "user_email": current_user.email
+        })
+
+    except Exception:
+        conn.rollback()
+        app.logger.exception("Could not create Razorpay order")
+
+        return jsonify({
+            "error": "Unable to create payment order. Please try again."
+        }), 500
+
+    finally:
+        conn.close()
+
+
+# ==========================================
+# VERIFY RAZORPAY PAYMENT
+# ==========================================
+
+@app.route("/verify-payment", methods=["POST"])
+@login_required
+def verify_payment():
+
+    if current_user.role == "admin":
+        return jsonify({
+            "error": "Admin accounts cannot make payments."
+        }), 403
+
+    data = request.get_json(silent=True) or {}
+
+    order_id = data.get("razorpay_order_id", "")
+    payment_id = data.get("razorpay_payment_id", "")
+    signature = data.get("razorpay_signature", "")
+
+    if not order_id or not payment_id or not signature:
+        return jsonify({
+            "error": "Payment verification details are incomplete."
+        }), 400
+
+    conn = get_connection()
+
+    try:
+        payment = conn.execute(
+            """
+            SELECT * FROM payments
+            WHERE razorpay_order_id = ? AND user_id = ?
+            """,
+            (order_id, current_user.id)
+        ).fetchone()
+
+        if not payment:
+            return jsonify({
+                "error": "Payment order was not found."
+            }), 404
+
+        if payment["status"] == "success":
+            return jsonify({
+                "success": True,
+                "message": "Payment already verified."
+            })
+
+        client = get_razorpay_client()
+
+        client.utility.verify_payment_signature({
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": payment_id,
+            "razorpay_signature": signature
+        })
+
+        plan = conn.execute(
+            "SELECT * FROM plans WHERE id = ?",
+            (payment["plan_id"],)
+        ).fetchone()
+
+        if not plan:
+            return jsonify({
+                "error": "The purchased plan no longer exists."
+            }), 400
+
+        existing_payment = conn.execute(
+            "SELECT id FROM payments WHERE payment_id = ?",
+            (payment_id,)
+        ).fetchone()
+
+        if existing_payment:
+            return jsonify({
+                "error": "This payment has already been used."
+            }), 409
+
+        now = datetime.now()
+
+        end_date = now + timedelta(
+            days=int(plan["duration_days"])
+        )
+
+        conn.execute(
+            """
+            UPDATE payments
+            SET payment_id = ?,
+                status = 'success',
+                razorpay_signature = ?
+            WHERE id = ?
+            """,
+            (
+                payment_id,
+                signature,
+                payment["id"]
+            )
+        )
+
+        conn.execute(
+            """
+            INSERT INTO subscriptions
+                (user_id, plan_id, status, start_date, end_date)
+            VALUES (?, ?, 'active', ?, ?)
+            """,
+            (
+                current_user.id,
+                plan["id"],
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+                end_date.strftime("%Y-%m-%d %H:%M:%S")
+            )
+        )
+
+        conn.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Payment verified and subscription activated."
+        })
+
+    except Exception:
+        conn.rollback()
+        app.logger.exception("Razorpay payment verification failed")
+
+        return jsonify({
+            "error": (
+                "Payment verification failed. Please contact support "
+                "if money was deducted."
+            )
+        }), 400
+
+    finally:
+        conn.close()
 
 
 # ==========================================
@@ -350,7 +596,6 @@ def admin_users():
 
     try:
         if search:
-
             users = conn.execute(
                 """
                 SELECT id, name, email, role, created_at, last_login
@@ -362,7 +607,6 @@ def admin_users():
             ).fetchall()
 
         else:
-
             users = conn.execute(
                 """
                 SELECT id, name, email, role, created_at, last_login
@@ -448,6 +692,7 @@ def add_plan():
         conn.close()
 
     flash("Subscription plan added successfully!")
+
     return redirect(url_for("admin_plans"))
 
 
@@ -524,7 +769,11 @@ def delete_plan(plan_id):
         ).fetchone()
 
         if existing_subscription:
-            flash("This plan is assigned to a subscription and cannot be deleted.")
+            flash(
+                "This plan is assigned to a subscription "
+                "and cannot be deleted."
+            )
+
         else:
             conn.execute(
                 "DELETE FROM plans WHERE id = ?",
@@ -626,6 +875,7 @@ def assign_subscription():
             return redirect(url_for("admin_subscriptions"))
 
         start_date = datetime.now()
+
         end_date = start_date + timedelta(
             days=plan["duration_days"]
         )
@@ -782,3 +1032,4 @@ def logout():
 
 if __name__ == "__main__":
     app.run(debug=True)
+
